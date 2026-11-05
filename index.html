@@ -189,6 +189,9 @@
             <button id="adminLoginBtn" class="text-xs bg-white/10 hover:bg-white/20 text-white font-semibold px-3 py-2 rounded-xl transition border border-white/20 flex items-center gap-1.5 backdrop-blur-sm shrink-0">
                 <i class="fa-solid fa-shield-halved text-teal-200"></i> Area do Gestor
             </button>
+            <button id="headerLogoutBtn" class="hidden text-xs bg-rose-500/80 hover:bg-rose-600 text-white font-semibold px-3 py-2 rounded-xl transition border border-rose-400/30 flex items-center gap-1.5 backdrop-blur-sm shrink-0">
+                <i class="fa-solid fa-right-from-bracket"></i> Sair do Modo Gestor
+            </button>
         </div>
 
         <!-- Navegação por Abas Lateral -->
@@ -634,6 +637,15 @@
                         <canvas id="chartAlertTypes"></canvas>
                     </div>
                 </div>
+
+                <!-- NOVO GRÁFICO: Média de Avaliações por Linha -->
+                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 md:col-span-2">
+                    <h4 class="text-xs font-bold text-slate-700 mb-2">Média de Satisfação dos Passageiros (Estrelas ★)</h4>
+                    <div class="h-48 relative">
+                        <canvas id="chartRatingsPerLine"></canvas>
+                    </div>
+                </div>
+
                 <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 md:col-span-2">
                     <h4 class="text-xs font-bold text-slate-700 mb-2">Linhas Mais bem Avaliadas x Linhas Críticas</h4>
                     <div class="grid grid-cols-2 gap-4">
@@ -1050,6 +1062,8 @@
             if(user === 'admin' && pass === '123456') {
                 DB.isAdmin = true;
                 closeAllModals();
+                document.getElementById('adminLoginBtn').classList.add('hidden');
+                document.getElementById('headerLogoutBtn').classList.remove('hidden');
                 document.getElementById('gestorBadgeHeader').classList.remove('hidden');
                 document.getElementById('adminAddLineContainer').classList.remove('hidden');
                 document.getElementById('tabAdminLoggedOut').classList.add('hidden');
@@ -1063,6 +1077,8 @@
 
         function handleLogout() {
             DB.isAdmin = false;
+            document.getElementById('adminLoginBtn').classList.remove('hidden');
+            document.getElementById('headerLogoutBtn').classList.add('hidden');
             document.getElementById('gestorBadgeHeader').classList.add('hidden');
             document.getElementById('adminAddLineContainer').classList.add('hidden');
             document.getElementById('tabAdminLoggedOut').classList.remove('hidden');
@@ -1107,6 +1123,7 @@
             });
 
             document.getElementById('adminLoginBtn').addEventListener('click', () => showModal('loginModal'));
+            document.getElementById('headerLogoutBtn').addEventListener('click', handleLogout);
             document.getElementById('tabAdminLoginTrigger').addEventListener('click', () => showModal('loginModal'));
             document.getElementById('doLoginBtn').addEventListener('click', handleLogin);
             document.getElementById('tabAdminLogoutBtn').addEventListener('click', handleLogout);
@@ -1751,7 +1768,12 @@
         }
 
         function resetRouteHighlights() {
-            Object.values(routeLayers).forEach(l => l.setStyle({ opacity: 0.35, weight: 4 }));
+            Object.values(routeLayers).forEach(l => {
+                // Se nenhuma linha estiver selecionada, restaura a opacidade normal (0.85) e largura (5)
+                const opacity = DB.selectedRouteId ? 0.35 : 0.85;
+                const weight = DB.selectedRouteId ? 4 : 5;
+                l.setStyle({ opacity: opacity, weight: weight });
+            });
         }
 
         function handleMapItemClick(type, id) {
@@ -1952,6 +1974,7 @@
             setTimeout(() => {
                 buildChartAlertsPerLine();
                 buildChartAlertTypes();
+                buildChartRatingsPerLine(); // Chamada do novo gráfico
                 buildRanking();
             }, 100);
         }
@@ -2008,6 +2031,48 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        }
+
+        // NOVO GRÁFICO: Média de Estrelas por Linha
+        function buildChartRatingsPerLine() {
+            const ctx = document.getElementById('chartRatingsPerLine').getContext('2d');
+            if(chartsInstance['ratings']) chartsInstance['ratings'].destroy();
+
+            const labels = DB.routes.map(r => r.name);
+            const data = DB.routes.map(r => {
+                const routeRatings = DB.ratings.filter(rt => rt.targetType === 'route' && rt.targetId === r.id);
+                if (routeRatings.length === 0) return 5.0; // Padrão se não houver reviews
+                const sum = routeRatings.reduce((acc, curr) => acc + curr.rating, 0);
+                return parseFloat((sum / routeRatings.length).toFixed(1));
+            });
+            const colors = DB.routes.map(r => r.color);
+
+            chartsInstance['ratings'] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Média de Estrelas (1-5 ★)',
+                        data: data,
+                        backgroundColor: colors,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { 
+                        y: { 
+                            beginAtZero: true, 
+                            max: 5,
+                            ticks: { stepSize: 1 } 
+                        } 
+                    },
+                    plugins: { 
+                        legend: { display: false } 
+                    }
                 }
             });
         }
