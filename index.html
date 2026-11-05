@@ -1,0 +1,2299 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Próxima Parada - Mobilidade Urbana de Itapetininga</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#308F8F',
+                            50: '#f2f9f9',
+                            100: '#e1f2f2',
+                            500: '#308F8F',
+                            600: '#267373',
+                            700: '#1d5757',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Leaflet JS & CSS (Biblioteca Standard para Mapas Interativos em JS Puro) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Chart.js (Visualização de Dados em JS Puro) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+
+        main {
+            isolation: isolate;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            position: relative;
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            width: 5px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: rgba(241, 245, 249, 0.6);
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Leaflet custom marker styles */
+        .stop-marker-dot {
+            width: 14px;
+            height: 14px;
+            background-color: #ffffff;
+            border: 3px solid var(--route-color, #308F8F);
+            border-radius: 50%;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            transition: transform 0.2s;
+        }
+        .stop-marker-dot:hover {
+            transform: scale(1.3);
+        }
+
+        .bus-marker-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .bus-pulse {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background-color: var(--bus-color, #308F8F);
+            opacity: 0.4;
+            animation: pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        .bus-marker-icon {
+            width: 28px;
+            height: 28px;
+            background-color: var(--bus-color, #308F8F);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            border: 2px solid white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+            z-index: 2;
+        }
+
+        .user-location-pin {
+            width: 20px;
+            height: 20px;
+            background-color: #2563eb;
+            border: 3px solid #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.3);
+            animation: user-ping 2s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.7); opacity: 0.8; }
+            80%, 100% { transform: scale(1.6); opacity: 0; }
+        }
+
+        @keyframes user-ping {
+            0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.5); }
+            70% { box-shadow: 0 0 0 12px rgba(37, 99, 235, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+        }
+
+        .glass-header {
+            background: linear-gradient(135deg, #1e293b 0%, #308F8F 100%);
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+        }
+
+        .shadow-floating {
+            box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+        }
+
+        .modal-enter {
+            animation: modalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.95) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 h-screen w-screen flex flex-col md:flex-row overflow-hidden antialiased">
+
+    <!-- SIDEBAR DE NAVEGAÇÃO E RECURSOS -->
+    <aside class="w-full md:w-96 bg-white border-r border-slate-200/80 flex flex-col h-1/2 md:h-full z-30 shadow-xl shrink-0">
+        
+        <!-- Header Principal -->
+        <div class="glass-header text-white p-4 px-5 flex justify-between items-center shadow-md shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20 shadow-inner shrink-0">
+                    <i class="fa-solid fa-bus text-xl text-white"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="text-lg font-bold tracking-tight leading-tight">Próxima Parada</h1>
+                        <span id="gestorBadgeHeader" class="hidden text-[10px] bg-teal-300/20 border border-teal-200/40 text-teal-100 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <i class="fa-solid fa-user-shield text-[9px]"></i> Perfil Gestor
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-1.5 text-[11px] text-teal-100/90 font-medium">
+                        <span>Itapetininga - SP</span>
+                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span class="text-[10px] text-emerald-200 font-bold">AO VIVO</span>
+                    </div>
+                </div>
+            </div>
+            
+            <button id="adminLoginBtn" class="text-xs bg-white/10 hover:bg-white/20 text-white font-semibold px-3 py-2 rounded-xl transition border border-white/20 flex items-center gap-1.5 backdrop-blur-sm shrink-0">
+                <i class="fa-solid fa-shield-halved text-teal-200"></i> Area do Gestor
+            </button>
+        </div>
+
+        <!-- Navegação por Abas Lateral -->
+        <div class="flex bg-slate-100/80 p-1.5 gap-1 border-b border-slate-200/80 shrink-0">
+            <button id="tabRoutesBtn" class="flex-1 py-2.5 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-white text-primary shadow-sm">
+                <i class="fa-solid fa-route text-xs"></i> Linhas
+            </button>
+            <button id="tabAlertsBtn" class="flex-1 py-2.5 px-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 transition flex items-center justify-center gap-1.5 hover:bg-white/50">
+                <i class="fa-solid fa-triangle-exclamation text-xs"></i> Ocorrências
+                <span id="alertsCountBadge" class="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">0</span>
+            </button>
+            <button id="tabAdminBtn" class="flex-1 py-2.5 px-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 transition flex items-center justify-center gap-1.5 hover:bg-white/50">
+                <i class="fa-solid fa-chart-pie text-xs text-teal-600"></i> Painel Dados
+            </button>
+        </div>
+
+        <!-- Conteúdo Scrollável das Abas -->
+        <div class="flex-1 overflow-y-auto custom-scroll p-4 space-y-4">
+            
+            <!-- ABA 1: LINHAS DE ÔNIBUS -->
+            <div id="tabRoutes" class="space-y-4">
+                
+                <!-- Painel Modo Gestor (Prefeitura) -->
+                <div id="adminAddLineContainer" class="hidden bg-slate-900 text-white p-3.5 rounded-2xl shadow-md border border-slate-800 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold text-teal-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <i class="fa-solid fa-city"></i> Modo Gestor - Prefeitura
+                        </span>
+                        <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">Ativo</span>
+                    </div>
+                    <button id="openAddLineMenuBtn" class="w-full bg-primary hover:bg-primary-600 text-white p-2.5 rounded-xl font-bold text-xs transition shadow-sm flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-circle-plus text-sm"></i> Adicionar nova linha
+                    </button>
+                </div>
+
+                <!-- Buscador de Local e Parada Mais Próxima com GPS & Autocomplete -->
+                <div class="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200/80 space-y-2.5 relative">
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <i class="fa-solid fa-location-dot text-primary"></i> Encontrar Parada mais Próxima
+                        </label>
+                        <button id="geoBtn" title="Usar minha localização GPS atual" class="text-xs text-primary hover:text-primary-700 font-bold flex items-center gap-1 bg-teal-50 px-2.5 py-1 rounded-xl border border-teal-200/80 hover:bg-teal-100 transition shadow-xs">
+                            <i class="fa-solid fa-location-crosshairs text-teal-600 animate-pulse"></i> GPS
+                        </button>
+                    </div>
+
+                    <div class="flex gap-2 relative">
+                        <div class="relative flex-1">
+                            <input type="text" id="searchInput" autocomplete="off" placeholder="Ex: Hospital, Praça Peixoto Gomide..." class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition bg-slate-50/50">
+                            <!-- Dropdown de Sugestões / Autocomplete -->
+                            <div id="searchSuggestions" class="hidden absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 max-h-52 overflow-y-auto custom-scroll p-1 space-y-0.5"></div>
+                        </div>
+                        <button id="searchBtn" class="bg-primary hover:bg-primary-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-sm flex items-center justify-center gap-1 shrink-0">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </button>
+                    </div>
+
+                    <!-- Cartão do Resultado do Ponto Encontrado -->
+                    <div id="searchResultCard" class="hidden bg-teal-50/90 border border-teal-200/80 p-3 rounded-2xl space-y-2 shadow-xs transition modal-enter">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-extrabold text-teal-800 uppercase tracking-wider flex items-center gap-1">
+                                <i class="fa-solid fa-bullseye text-primary"></i> Ponto mais Próximo
+                            </span>
+                            <span id="searchResultDistance" class="text-[10px] bg-primary text-white font-extrabold px-2 py-0.5 rounded-full shadow-2xs">-- m</span>
+                        </div>
+                        <div>
+                            <h4 id="searchResultName" class="text-xs font-bold text-slate-800 leading-snug">--</h4>
+                            <p id="searchResultRoutes" class="text-[10px] text-slate-500 font-medium mt-0.5">--</p>
+                        </div>
+                        <div class="flex gap-2 pt-0.5">
+                            <button id="searchResultFocusBtn" class="flex-1 bg-white hover:bg-teal-100/50 border border-teal-200 text-primary py-1.5 px-2 rounded-xl text-xs font-bold transition shadow-2xs flex items-center justify-center gap-1">
+                                <i class="fa-solid fa-map-pin"></i> Ver no Mapa
+                            </button>
+                            <button id="searchResultRateBtn" class="bg-primary hover:bg-primary-600 text-white py-1.5 px-3 rounded-xl text-xs font-bold transition shadow-xs flex items-center justify-center gap-1 shrink-0">
+                                <i class="fa-solid fa-star text-amber-300"></i> Avaliar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lista de Linhas -->
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center px-1">
+                        <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Linhas em Circulação</span>
+                        <span class="text-[11px] text-slate-400 font-medium">Toque para ver horários</span>
+                    </div>
+                    <div id="routesList" class="space-y-2">
+                        <!-- Gerado via JS -->
+                    </div>
+                </div>
+
+                <!-- Painel Detalhe da Linha Selecionada -->
+                <div id="selectedRouteDetail" class="hidden bg-teal-50/60 border border-teal-200/80 p-4 rounded-2xl space-y-3 shadow-sm">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center gap-2">
+                            <span id="detailBadgeColor" class="w-3.5 h-3.5 rounded-full shrink-0"></span>
+                            <h3 id="detailRouteTitle" class="font-bold text-xs text-slate-800 leading-tight">--</h3>
+                        </div>
+                        <button id="closeRouteDetailBtn" class="text-slate-400 hover:text-slate-600 p-1">
+                            <i class="fa-solid fa-xmark text-sm"></i>
+                        </button>
+                    </div>
+
+                    <div class="bg-white p-3 rounded-xl border border-teal-100 flex items-center justify-between shadow-xs">
+                        <div>
+                            <span class="text-[10px] text-slate-400 font-bold block uppercase">Próximo ônibus no ponto</span>
+                            <span id="detailNextBusTime" class="text-sm font-extrabold text-primary">--:--</span>
+                        </div>
+                        <i class="fa-solid fa-clock text-teal-400 text-lg"></i>
+                    </div>
+
+                    <div class="space-y-2">
+                        <span class="text-[11px] font-bold text-slate-700 block">Linha do Tempo de Paradas</span>
+                        <div id="timelineStopsList" class="space-y-1.5 max-h-48 overflow-y-auto custom-scroll pr-1">
+                            <!-- Gerado via JS -->
+                        </div>
+                    </div>
+
+                    <button id="rateSelectedRouteBtn" class="w-full bg-white hover:bg-teal-100/50 text-primary border border-primary/30 p-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs">
+                        <i class="fa-solid fa-star text-amber-400"></i> Avaliar esta Linha
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- ABA 2: AVISOS E OCORRÊNCIAS -->
+            <div id="tabAlerts" class="hidden space-y-4">
+                <div class="bg-amber-50 border border-amber-200 p-3.5 rounded-2xl flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-600 text-lg"></i>
+                        <div>
+                            <h4 class="text-xs font-bold text-amber-900">Ocorrências na Cidade</h4>
+                            <p class="text-[10px] text-amber-700">Avisos informados por outros passageiros</p>
+                        </div>
+                    </div>
+                    <button id="newAlertBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm shrink-0">
+                        + Reportar
+                    </button>
+                </div>
+
+                <div class="flex items-center justify-between px-1">
+                    <span class="text-xs font-bold text-slate-700">Exibir Ícones no Mapa</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="toggleAlertsMap" class="sr-only peer" checked>
+                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+
+                <div id="alertsList" class="space-y-2.5">
+                    <!-- Gerado via JS -->
+                </div>
+            </div>
+
+            <!-- ABA 3: PAINEL DE DADOS / GESTÃO (PREFEITURA) -->
+            <div id="tabAdmin" class="hidden space-y-4">
+                <div id="tabAdminLoggedOut" class="bg-white p-6 rounded-2xl text-center space-y-3 border border-slate-200 shadow-sm">
+                    <div class="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto text-xl">
+                        <i class="fa-solid fa-lock"></i>
+                    </div>
+                    <h3 class="font-bold text-sm text-slate-800">Acesso Restrito ao Gestor</h3>
+                    <p class="text-xs text-slate-500">Faça login com a conta de gestão para visualizar relatórios e métricas de transporte.</p>
+                    <button id="tabAdminLoginTrigger" class="bg-primary hover:bg-primary-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm">
+                        Fazer Login como Gestor
+                    </button>
+                </div>
+
+                <div id="tabAdminLoggedIn" class="hidden space-y-4">
+                    <div class="bg-gradient-to-r from-slate-900 to-teal-950 text-white p-4 rounded-2xl shadow-sm space-y-1">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs font-bold text-teal-300 uppercase tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-city"></i> Modo Gestor - Prefeitura
+                            </span>
+                            <button id="tabAdminLogoutBtn" class="text-[11px] text-slate-400 hover:text-white underline">Sair</button>
+                        </div>
+                        <h3 class="text-sm font-extrabold">Painel de Análise Urbano</h3>
+                    </div>
+
+                    <button id="openFullDashboardBtn" class="w-full bg-white hover:bg-slate-50 p-3 rounded-2xl text-xs font-bold text-primary border border-slate-200 shadow-sm flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-chart-line text-sm"></i> Abrir Relatório Completo & Gráficos
+                    </button>
+
+                    <!-- Resumo Rápido KPIs -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="bg-white p-3 rounded-xl border border-slate-200 text-center">
+                            <span class="text-[10px] text-slate-400 font-bold block uppercase">Total Linhas</span>
+                            <span id="sidebarKpiRoutes" class="text-base font-extrabold text-slate-800">0</span>
+                        </div>
+                        <div class="bg-white p-3 rounded-xl border border-slate-200 text-center">
+                            <span class="text-[10px] text-slate-400 font-bold block uppercase">Ocorrências</span>
+                            <span id="sidebarKpiAlerts" class="text-base font-extrabold text-amber-600">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </aside>
+
+    <!-- ÁREA PRINCIPAL (MAPA LEAFLET) -->
+    <main class="flex-1 relative flex flex-col h-1/2 md:h-full z-10 min-w-0 min-h-0 overflow-hidden">
+        
+        <!-- Faixa Flutuante de Status ao Desenhar Nova Linha -->
+        <div id="drawingBanner" class="hidden glass-panel bg-slate-900/95 text-white p-3 px-5 z-20 flex justify-between items-center shadow-floating border border-slate-700/80 absolute top-4 left-4 right-4 md:right-auto md:max-w-xl rounded-2xl">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center font-bold">
+                    <i class="fa-solid fa-pen-ruler animate-pulse"></i>
+                </div>
+                <div>
+                    <h4 id="drawingBannerTitle" class="text-xs font-bold text-white">Criando Nova Linha...</h4>
+                    <p class="text-[11px] text-teal-200">
+                        <b>Botão Esquerdo:</b> Rota | <b>Botão Direito:</b> Criar Parada
+                    </p>
+                </div>
+            </div>
+            <button id="cancelDrawingBannerBtn" class="bg-rose-500 hover:bg-rose-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ml-3 shrink-0">
+                Concluir / Voltar ao Menu
+            </button>
+        </div>
+
+        <!-- Container Leaflet -->
+        <div id="map" class="flex-1 w-full h-full min-h-[300px]"></div>
+    </main>
+
+    <!-- OVERLAY DE MODAIS -->
+    <div id="modalOverlay" class="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+
+        <!-- MODAL 1: Login Admin -->
+        <div id="loginModal" class="bg-white p-6 rounded-3xl shadow-floating w-full max-w-sm hidden modal-enter relative border border-slate-100">
+            <button class="close-modal absolute top-4 right-4 text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+            <div class="text-center space-y-3 mb-5">
+                <div class="w-12 h-12 bg-teal-50 text-primary rounded-2xl flex items-center justify-center mx-auto text-xl">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <h3 class="font-extrabold text-slate-800 text-base">Acesso do Gestor</h3>
+                <p class="text-xs text-slate-500">Entre com as credenciais de administração da Prefeitura</p>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Usuário</label>
+                    <input type="text" id="adminUser" value="admin" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-primary/20">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Senha</label>
+                    <input type="password" id="adminPass" value="123456" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-primary/20">
+                </div>
+                <button id="doLoginBtn" class="w-full bg-primary hover:bg-primary-600 text-white font-bold py-3 rounded-xl text-xs transition shadow-md mt-2">
+                    Entrar no Sistema
+                </button>
+            </div>
+        </div>
+
+        <!-- MODAL 2: Menu Adicionar / Editar Linha -->
+        <div id="addLineMenuModal" class="bg-white p-6 rounded-3xl shadow-floating w-full max-w-md hidden modal-enter relative border border-slate-100 max-h-[90vh] flex flex-col">
+            <button class="close-modal absolute top-4 right-4 text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+            
+            <div class="flex items-center gap-3 mb-4 shrink-0">
+                <div class="w-10 h-10 bg-teal-50 text-primary rounded-2xl flex items-center justify-center text-lg font-bold">
+                    <i class="fa-solid fa-route"></i>
+                </div>
+                <div>
+                    <h2 id="lineModalTitle" class="text-base font-bold text-slate-800">Adicionar Nova Linha de Ônibus</h2>
+                    <p id="lineModalSubtitle" class="text-[11px] text-slate-500">Traceje primeiro o trajeto e depois adicione as paradas</p>
+                </div>
+            </div>
+
+            <div class="space-y-4 flex-1 overflow-y-auto custom-scroll pr-1">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Nome da Linha</label>
+                    <input type="text" id="newLineName" placeholder="Ex: Linha 04 - Bairro das Faias / Centro" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs focus:ring-2 focus:ring-primary/20 outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Cor da Linha no Mapa</label>
+                    <div class="flex items-center gap-3">
+                        <input type="color" id="newLineColor" value="#8b5cf6" class="w-12 h-10 rounded-xl border border-slate-200 cursor-pointer p-0.5">
+                        <span class="text-xs text-slate-500">Cor personalizada de identificação</span>
+                    </div>
+                </div>
+
+                <!-- Etapa 1: Desenhar Rota -->
+                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <span class="w-5 h-5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center">1</span>
+                            Trajeto no Mapa
+                        </span>
+                        <span id="pathPointsBadge" class="text-[10px] bg-slate-200 font-bold px-2 py-0.5 rounded-full text-slate-700">0 pontos</span>
+                    </div>
+                    <button id="startDrawingPathBtn" class="w-full bg-sky-600 hover:bg-sky-700 text-white p-2.5 rounded-xl font-bold text-xs transition shadow-xs flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-pen-ruler"></i> <span id="drawPathBtnText">Desenhar Trajeto no Mapa</span>
+                    </button>
+                </div>
+
+                <!-- Etapa 2: Adicionar Paradas -->
+                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <span class="w-5 h-5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center">2</span>
+                            Paradas da Linha
+                        </span>
+                        <span id="newLineStopsCount" class="text-[10px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">0 paradas</span>
+                    </div>
+                    
+                    <button id="startAddingStopsBtn" disabled class="w-full bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:text-slate-400 text-white p-2.5 rounded-xl font-bold text-xs transition shadow-xs flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-location-dot"></i> Colocar Paradas no Trajeto
+                    </button>
+                    <p id="stopsDisabledHint" class="text-[10px] text-amber-700 italic text-center">Complete primeiro o trajeto da linha (mínimo 2 pontos) para liberar a adição de paradas.</p>
+
+                    <div id="newLineStopsList" class="space-y-1.5 max-h-32 overflow-y-auto custom-scroll pt-1">
+                        <p class="text-[11px] text-slate-400 italic text-center py-2">Nenhuma parada adicionada ainda.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-4 mt-2 border-t border-slate-100 flex gap-2 shrink-0">
+                <button id="saveNewLineBtn" class="w-full bg-primary hover:bg-primary-600 text-white py-3 rounded-xl font-bold text-xs transition shadow-md flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-floppy-disk"></i> Salvar Linha
+                </button>
+            </div>
+        </div>
+
+        <!-- MODAL 3: Reportar Ocorrência -->
+        <div id="alertModal" class="bg-white p-6 rounded-3xl shadow-floating w-full max-w-sm hidden modal-enter relative border border-slate-100">
+            <button class="close-modal absolute top-4 right-4 text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+            <div class="text-center space-y-2 mb-4">
+                <div class="w-10 h-10 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto text-lg">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <h3 class="font-bold text-sm text-slate-800">Reportar Ocorrência</h3>
+                <p class="text-xs text-slate-500">Informe um problema no trânsito ou no ponto de ônibus</p>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Tipo de Evento</label>
+                    <select id="alertType" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs outline-none bg-slate-50 focus:ring-2 focus:ring-primary/20">
+                        <option value="superlotacao">👥 Superlotação</option>
+                        <option value="congestionamento">🚗 Congestionamento / Lentidão</option>
+                        <option value="acidente">💥 Acidente na Via</option>
+                        <option value="ponto_danificado">🏚️ Ponto Danificado</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Linha Afetada (Opcional)</label>
+                    <select id="alertRoute" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs outline-none bg-slate-50 focus:ring-2 focus:ring-primary/20">
+                        <!-- Preenchido via JS -->
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Observações</label>
+                    <textarea id="alertDesc" rows="2" placeholder="Detalhes adicionais..." class="w-full border border-slate-200 rounded-xl p-2 text-xs outline-none focus:ring-2 focus:ring-primary/20 resize-none"></textarea>
+                </div>
+                <button id="confirmAlertBtn" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md">
+                    Próximo: Marcar Posição no Mapa
+                </button>
+            </div>
+        </div>
+
+        <!-- MODAL 4: Confirmação de Exclusão -->
+        <div id="deleteConfirmModal" class="bg-white p-6 rounded-3xl shadow-floating w-full max-w-xs hidden modal-enter text-center space-y-4 relative border border-slate-100">
+            <div class="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto text-xl">
+                <i class="fa-solid fa-trash-can"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-sm text-slate-800">Excluir Linha?</h3>
+                <p id="deleteConfirmText" class="text-xs text-slate-500 mt-1">Esta ação não poderá ser desfeita.</p>
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button id="cancelDeleteBtn" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition">
+                    Cancelar
+                </button>
+                <button id="confirmDeleteBtn" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md">
+                    Excluir
+                </button>
+            </div>
+        </div>
+
+        <!-- MODAL 5: Avaliação -->
+        <div id="ratingModal" class="bg-white p-6 rounded-3xl shadow-floating w-full max-w-sm hidden modal-enter relative border border-slate-100 space-y-4">
+            <button class="close-modal absolute top-4 right-4 text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+            <div>
+                <h3 id="ratingTitle" class="font-bold text-sm text-slate-800">Avaliar Serviço</h3>
+                <p class="text-xs text-slate-500 mt-0.5">Sua opinião ajuda a melhorar a mobilidade na cidade</p>
+            </div>
+            
+            <div class="flex justify-center gap-2 text-2xl" id="starContainer">
+                <i class="fa-solid fa-star cursor-pointer text-slate-300 hover:text-amber-400 transition" data-rating="1"></i>
+                <i class="fa-solid fa-star cursor-pointer text-slate-300 hover:text-amber-400 transition" data-rating="2"></i>
+                <i class="fa-solid fa-star cursor-pointer text-slate-300 hover:text-amber-400 transition" data-rating="3"></i>
+                <i class="fa-solid fa-star cursor-pointer text-slate-300 hover:text-amber-400 transition" data-rating="4"></i>
+                <i class="fa-solid fa-star cursor-pointer text-slate-300 hover:text-amber-400 transition" data-rating="5"></i>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Comentário (opcional)</label>
+                <textarea id="ratingComment" rows="2" placeholder="Descreva sua experiência..." class="w-full border border-slate-200 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-primary/20 resize-none"></textarea>
+            </div>
+
+            <div class="space-y-1.5">
+                <span class="text-[11px] font-bold text-slate-700 block">Histórico do Ponto / Linha</span>
+                <div id="historicalRatings" class="space-y-1.5 max-h-28 overflow-y-auto custom-scroll pr-1">
+                    <!-- Gerado via JS -->
+                </div>
+            </div>
+
+            <button id="submitRatingBtn" disabled class="w-full bg-primary hover:bg-primary-600 disabled:bg-slate-200 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md">
+                Enviar Avaliação
+            </button>
+        </div>
+
+        <!-- MODAL 6: Dashboard Completo -->
+        <div id="dashboardModal" class="bg-white p-6 rounded-3xl shadow-floating w-full max-w-2xl hidden modal-enter relative border border-slate-100 max-h-[90vh] flex flex-col space-y-4">
+            <button class="close-modal absolute top-4 right-4 text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+            <div>
+                <h3 class="font-bold text-base text-slate-800">Relatório de Desempenho e Dados Urbano</h3>
+                <p class="text-xs text-slate-500">Análise de tráfego, ocorrências e satisfação em Itapetininga</p>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3">
+                <div class="bg-teal-50/80 p-3 rounded-2xl border border-teal-100 text-center">
+                    <span class="text-[10px] text-teal-700 font-bold uppercase block">Linhas Ativas</span>
+                    <span id="kpiTotalRoutes" class="text-xl font-extrabold text-primary">0</span>
+                </div>
+                <div class="bg-amber-50/80 p-3 rounded-2xl border border-amber-100 text-center">
+                    <span class="text-[10px] text-amber-700 font-bold uppercase block">Ocorrências</span>
+                    <span id="kpiTotalAlerts" class="text-xl font-extrabold text-amber-600">0</span>
+                </div>
+                <div class="bg-emerald-50/80 p-3 rounded-2xl border border-emerald-100 text-center">
+                    <span class="text-[10px] text-emerald-700 font-bold uppercase block">Média Nota</span>
+                    <span id="kpiAvgRating" class="text-xl font-extrabold text-emerald-600">0.0</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 overflow-y-auto custom-scroll pr-1">
+                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80">
+                    <h4 class="text-xs font-bold text-slate-700 mb-2">Ocorrências por Linha</h4>
+                    <div class="h-44 relative">
+                        <canvas id="chartAlertsPerLine"></canvas>
+                    </div>
+                </div>
+                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80">
+                    <h4 class="text-xs font-bold text-slate-700 mb-2">Tipos de Ocorrência</h4>
+                    <div class="h-44 relative">
+                        <canvas id="chartAlertTypes"></canvas>
+                    </div>
+                </div>
+                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 md:col-span-2">
+                    <h4 class="text-xs font-bold text-slate-700 mb-2">Linhas Mais bem Avaliadas x Linhas Críticas</h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <span class="text-[11px] font-bold text-emerald-600 block mb-1">Top Melhores Avaliadas</span>
+                            <ul id="bestLinesList" class="space-y-1"></ul>
+                        </div>
+                        <div>
+                            <span class="text-[11px] font-bold text-rose-600 block mb-1">Atenção Necessária</span>
+                            <ul id="worstLinesList" class="space-y-1"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL 7: Mensagens Genéricas -->
+        <div id="messageModal" class="bg-white p-6 rounded-3xl shadow-floating w-full max-w-xs hidden modal-enter text-center space-y-3 relative border border-slate-100">
+            <div id="msgIcon" class="text-3xl"></div>
+            <div>
+                <h3 id="msgTitle" class="font-bold text-sm text-slate-800">Aviso</h3>
+                <p id="msgText" class="text-xs text-slate-500 mt-1"></p>
+            </div>
+            <button id="closeMsgBtn" class="w-full bg-primary hover:bg-primary-600 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md mt-1">
+                Entendido
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        /**
+         * TECNOLOGIAS UTILIZADAS NESTE PROTÓTIPO:
+         * 1. HTML5 Semântico (Aside, Main, Modal, Offcanvas, Inputs)
+         * 2. CSS3 & Tailwind CSS (Layout Flexbox/Grid responsivo, Animações, Glassmorphism)
+         * 3. JavaScript Vanilla ES6+ (Manipulação de DOM, requisições Fetch, lógica de animação de ônibus)
+         * 
+         * PERFIS DE ACESSO:
+         * - PERFIL USUÁRIO (Passageiro): Consulta de linhas em tempo real, busca de pontos via GPS/texto,
+         *   relato de ocorrências no trânsito e avaliação de linhas/pontos.
+         * - PERFIL ADMINISTRADOR (Gestor da Prefeitura): Acesso restrito via login, permissão para criar,
+         *   desenhar, editar e excluir linhas, além do painel completo de métricas e gráficos.
+         */
+
+        // BANCO DE DADOS EM MEMÓRIA (CLIENT-SIDE)
+        const DB = {
+            isAdmin: false, // Define a alternância entre Perfil Usuário (false) e Perfil Gestor (true)
+            drawingMode: null, // null | 'path' | 'stops'
+            editingRouteId: null,
+            routeToDeleteId: null,
+            currentRatingTarget: null,
+            pendingAlert: null,
+            selectedRouteId: null,
+            foundStopId: null,
+            
+            newLine: {
+                name: '',
+                color: '#8b5cf6',
+                path: [],
+                stops: []
+            },
+            
+            // Dados detalhados de vias reais de Itapetininga - SP
+            routes: [
+                {
+                    id: 'r1',
+                    name: 'Linha 01 - Vila Rio Branco / Centro',
+                    color: '#e11d48',
+                    path: [
+                        [-23.5905, -48.0535],
+                        [-23.5898, -48.0531],
+                        [-23.5888, -48.0522],
+                        [-23.5875, -48.0509],
+                        [-23.5862, -48.0498],
+                        [-23.5847, -48.0487],
+                        [-23.5832, -48.0475],
+                        [-23.5802, -48.0450],
+                        [-23.5788, -48.0438],
+                        [-23.5772, -48.0425]
+                    ],
+                    stops: ['s1', 's2', 's3', 's4'],
+                    buses: [{ currentDist: 0, direction: 1, state: 'moving', waitTimer: 0 }]
+                },
+                {
+                    id: 'r2',
+                    name: 'Linha 02 - Jardim Itália / Centro / Poupatempo',
+                    color: '#2563eb',
+                    path: [
+                        [-23.5905, -48.0535],
+                        [-23.5918, -48.0542],
+                        [-23.5935, -48.0552],
+                        [-23.5952, -48.0565],
+                        [-23.5968, -48.0578],
+                        [-23.5985, -48.0592],
+                        [-23.6008, -48.0612],
+                        [-23.6035, -48.0638],
+                        [-23.6060, -48.0660]
+                    ],
+                    stops: ['s1', 's5', 's6', 's7'],
+                    buses: [{ currentDist: 0, direction: 1, state: 'moving', waitTimer: 0 }]
+                },
+                {
+                    id: 'r3',
+                    name: 'Linha 03 - Hospital Regional / Athenas',
+                    color: '#059669',
+                    path: [
+                        [-23.5832, -48.0475],
+                        [-23.5850, -48.0490],
+                        [-23.5878, -48.0512],
+                        [-23.5895, -48.0530],
+                        [-23.5912, -48.0555],
+                        [-23.5930, -48.0580],
+                        [-23.5950, -48.0600],
+                        [-23.5965, -48.0615]
+                    ],
+                    stops: ['s3', 's9', 's8', 's5'],
+                    buses: [{ currentDist: 0, direction: 1, state: 'moving', waitTimer: 0 }]
+                }
+            ],
+            stops: {
+                's1': { id: 's1', name: 'Terminal Rodoviário Central', lat: -23.5905, lng: -48.0535 },
+                's2': { id: 's2', name: 'Rua Monsenhor Soares', lat: -23.5875, lng: -48.0509 },
+                's3': { id: 's3', name: 'Praça Peixoto Gomide', lat: -23.5832, lng: -48.0475 },
+                's4': { id: 's4', name: 'Vila Rio Branco (Ponto Final)', lat: -23.5772, lng: -48.0425 },
+                's5': { id: 's5', name: 'Poupatempo / Shopping', lat: -23.5968, lng: -48.0578 },
+                's6': { id: 's6', name: 'Avenida 5 de Novembro', lat: -23.5935, lng: -48.0552 },
+                's7': { id: 's7', name: 'Jardim Itália (Ponto Final)', lat: -23.6060, lng: -48.0660 },
+                's8': { id: 's8', name: 'Av. Marginal Chá Preta', lat: -23.5930, lng: -48.0580 },
+                's9': { id: 's9', name: 'Hospital Dr. Léo Orsi Bernardes', lat: -23.5878, lng: -48.0512 }
+            },
+            alerts: [
+                { id: 'a1', type: 'superlotacao', routeId: 'r1', lat: -23.5875, lng: -48.0509, desc: 'Excesso de passageiros no horário de pico', timestamp: new Date(Date.now() - 2400000).toISOString() },
+                { id: 'a2', type: 'congestionamento', routeId: 'r2', lat: -23.5968, lng: -48.0578, desc: 'Lentidão devido a obras na avenida', timestamp: new Date(Date.now() - 1200000).toISOString() }
+            ],
+            ratings: [
+                { id: 'rt1', targetType: 'route', targetId: 'r1', rating: 5, comment: 'Sempre cumpre os horários.', timestamp: new Date(Date.now() - 86400000).toISOString() },
+                { id: 'rt2', targetType: 'route', targetId: 'r2', rating: 2, comment: 'Poderia ter mais frequência de veículos.', timestamp: new Date(Date.now() - 43200000).toISOString() },
+                { id: 'rt3', targetType: 'stop', targetId: 's1', rating: 4, comment: 'Boa cobertura, com bancos e abrigo.', timestamp: new Date(Date.now() - 7200000).toISOString() }
+            ]
+        };
+
+        const iconTypes = {
+            superlotacao: { icon: 'fa-users', color: '#f59e0b', text: 'Superlotação' },
+            congestionamento: { icon: 'fa-car-side', color: '#eab308', text: 'Congestionamento' },
+            acidente: { icon: 'fa-car-burst', color: '#ef4444', text: 'Acidente na Via' },
+            ponto_danificado: { icon: 'fa-house-crack', color: '#64748b', text: 'Ponto Danificado' }
+        };
+
+        // VARIÁVEIS DE MAPA
+        let map;
+        let activeTileLayer = null;
+        let routeLayers = {};
+        let stopLayers = {};
+        let alertLayers = {};
+        let busMarkers = {};
+        let userLocationMarker = null;
+        let tempDrawingPolyline = null;
+        let rubberbandPolyline = null; // Linha dinâmica que segue o mouse
+        let cursorMarker = null; // Bolinha colorida no cursor
+        let tempStopMarkers = [];
+        let clickListener = null;
+
+        async function initApp() {
+            map = L.map('map', { zoomControl: false }).setView([-23.5875, -48.0512], 14);
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            // Trocado para o Esri Light Gray Base, que é 100% amigável para ambientes de Preview/iFrame
+            activeTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+                maxZoom: 16
+            }).addTo(map);
+
+            const mapContainer = document.getElementById('map');
+            if (window.ResizeObserver && mapContainer) {
+                const resizeObserver = new ResizeObserver(() => {
+                    if (map) map.invalidateSize();
+                });
+                resizeObserver.observe(mapContainer);
+            }
+
+            setTimeout(() => {
+                if (map) map.invalidateSize();
+            }, 300);
+
+            // MÁGICA: Converte os pontos de marcação retos nas curvas reais das ruas através da API do OSRM
+            await snapRoutesToStreets();
+
+            preprocessRouteGeometry();
+            renderMapElements();
+            populateUI();
+            setupEventListeners();
+            startBusAnimationLoop();
+        }
+
+        async function fetchSnappedPath(pathCoords) {
+            // A API de rotas OSRM exige as coordenadas no formato lon,lat
+            // Adicionado overview=full & continue_straight=true para evitar voltas desnecessárias
+            const coordsString = pathCoords.map(p => `${p[1]},${p[0]}`).join(';');
+            const url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?geometries=geojson&overview=full&continue_straight=true`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                    // GeoJSON retorna as coordenadas como [lon, lat], mas o Leaflet usa [lat, lon]
+                    return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                }
+            } catch (error) {
+                console.error("Erro ao alinhar rota nas ruas via OSRM:", error);
+            }
+            return pathCoords; // Fallback para a rota reta original se a API do OSRM falhar
+        }
+
+        async function snapRoutesToStreets() {
+            // Executa a busca da geometria real para todas as rotas iniciais em paralelo
+            // E ajusta a posição de todas as paradas existentes para o ponto exato da nova geometria
+            const promises = DB.routes.map(async (route) => {
+                route.path = await fetchSnappedPath(route.path);
+                
+                // Reajusta as paradas da rota para ficarem 100% sobre o caminho alinhado às ruas
+                route.stops.forEach(stopId => {
+                    const st = DB.stops[stopId];
+                    if (st) {
+                        const snapped = getClosestPointOnPath([st.lat, st.lng], route.path);
+                        st.lat = snapped[0];
+                        st.lng = snapped[1];
+                    }
+                });
+            });
+            await Promise.all(promises);
+        }
+
+        // FÓRMULA DE HAVERSINE PARA DISTÂNCIA EXATA EM METROS
+        function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = 
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return Math.round(R * c);
+        }
+
+        function findNearestStopToCoords(lat, lng) {
+            let closestStop = null;
+            let minDistance = Infinity;
+
+            Object.values(DB.stops).forEach(stop => {
+                const dist = calculateDistanceMeters(lat, lng, stop.lat, stop.lng);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    closestStop = stop;
+                }
+            });
+
+            return { stop: closestStop, distance: minDistance };
+        }
+
+        function showUserLocationOnMap(lat, lng) {
+            if (userLocationMarker) map.removeLayer(userLocationMarker);
+            const userIcon = L.divIcon({ className: 'user-location-pin', iconSize: [20, 20], iconAnchor: [10, 10] });
+            userLocationMarker = L.marker([lat, lng], { icon: userIcon, zIndexOffset: 2000 }).addTo(map);
+            userLocationMarker.bindTooltip("<b>Sua Posição Atual</b>", { direction: 'top', offset: [0, -10] });
+        }
+
+        function displayFoundStopCard(stop, distanceMeters) {
+            DB.foundStopId = stop.id;
+            const card = document.getElementById('searchResultCard');
+            const nameEl = document.getElementById('searchResultName');
+            const distEl = document.getElementById('searchResultDistance');
+            const routesEl = document.getElementById('searchResultRoutes');
+
+            nameEl.innerText = stop.name;
+            distEl.innerText = distanceMeters < 1000 ? `${distanceMeters} m` : `${(distanceMeters/1000).toFixed(1)} km`;
+
+            // Linhas que atendem este ponto
+            const passingRoutes = DB.routes.filter(r => r.stops.includes(stop.id));
+            if (passingRoutes.length > 0) {
+                routesEl.innerText = "Linhas: " + passingRoutes.map(r => r.name.split('-')[0].trim()).join(', ');
+            } else {
+                routesEl.innerText = "Sem linhas associadas no momento";
+            }
+
+            card.classList.remove('hidden');
+
+            document.getElementById('searchResultFocusBtn').onclick = () => {
+                map.setView([stop.lat, stop.lng], 17);
+                const marker = stopLayers[stop.id];
+                if (marker) marker.openTooltip();
+            };
+
+            document.getElementById('searchResultRateBtn').onclick = () => {
+                handleMapItemClick('stop', stop.id);
+            };
+        }
+
+        function handleGeolocationSearch() {
+            const geoBtn = document.getElementById('geoBtn');
+            geoBtn.innerHTML = `<i class="fa-solid fa-spinner animate-spin text-teal-600"></i> Buscando...`;
+
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        geoBtn.innerHTML = `<i class="fa-solid fa-location-crosshairs text-teal-600"></i> GPS`;
+                        const lat = pos.coords.latitude;
+                        const lng = pos.coords.longitude;
+                        
+                        showUserLocationOnMap(lat, lng);
+                        const result = findNearestStopToCoords(lat, lng);
+
+                        if (result.stop) {
+                            displayFoundStopCard(result.stop, result.distance);
+                            map.setView([result.stop.lat, result.stop.lng], 16);
+                            showMessage("Localização Encontrada", `A parada mais próxima de você é "${result.stop.name}" (${result.distance < 1000 ? result.distance + 'm' : (result.distance/1000).toFixed(1) + 'km'}).`, "success");
+                        }
+                    },
+                    (err) => {
+                        // Se permissão negada, simula posição do usuário no Centro de Itapetininga
+                        geoBtn.innerHTML = `<i class="fa-solid fa-location-crosshairs text-teal-600"></i> GPS`;
+                        const centerLat = -23.5880;
+                        const centerLng = -48.0510;
+                        showUserLocationOnMap(centerLat, centerLng);
+                        const result = findNearestStopToCoords(centerLat, centerLng);
+
+                        if (result.stop) {
+                            displayFoundStopCard(result.stop, result.distance);
+                            map.setView([result.stop.lat, result.stop.lng], 16);
+                            showMessage("GPS Simulado (Centro)", `Sua posição aproximada foi definida no Centro. A parada mais próxima é "${result.stop.name}" (${result.distance}m).`, "info");
+                        }
+                    },
+                    { timeout: 8000 }
+                );
+            } else {
+                geoBtn.innerHTML = `<i class="fa-solid fa-location-crosshairs text-teal-600"></i> GPS`;
+                showMessage("GPS Indisponível", "Seu navegador não suporta geolocalização.", "error");
+            }
+        }
+
+        function handleSearchInput(e) {
+            const val = e.target.value.toLowerCase().trim();
+            const suggestionsEl = document.getElementById('searchSuggestions');
+            
+            if (!val) {
+                suggestionsEl.classList.add('hidden');
+                return;
+            }
+
+            const matchesStops = Object.values(DB.stops).filter(s => s.name.toLowerCase().includes(val));
+            const matchesRoutes = DB.routes.filter(r => r.name.toLowerCase().includes(val));
+
+            if (matchesStops.length === 0 && matchesRoutes.length === 0) {
+                suggestionsEl.innerHTML = `<div class="p-2.5 text-xs text-slate-400 italic text-center">Nenhum ponto ou linha encontrado</div>`;
+                suggestionsEl.classList.remove('hidden');
+                return;
+            }
+
+            let html = '';
+
+            if (matchesStops.length > 0) {
+                html += `<div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">Paradas de Ônibus</div>`;
+                matchesStops.forEach(stop => {
+                    html += `
+                        <div onclick="selectSearchSuggestion('stop', '${stop.id}')" class="p-2 hover:bg-teal-50/80 rounded-xl cursor-pointer text-xs font-semibold text-slate-700 flex items-center justify-between transition">
+                            <span class="flex items-center gap-1.5 truncate"><i class="fa-solid fa-location-dot text-primary text-xs"></i> ${stop.name}</span>
+                            <span class="text-[10px] text-teal-600 font-bold bg-teal-50 px-1.5 py-0.5 rounded-md">Parada</span>
+                        </div>
+                    `;
+                });
+            }
+
+            if (matchesRoutes.length > 0) {
+                html += `<div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 border-t border-slate-100 mt-1">Linhas de Ônibus</div>`;
+                matchesRoutes.forEach(route => {
+                    html += `
+                        <div onclick="selectSearchSuggestion('route', '${route.id}')" class="p-2 hover:bg-teal-50/80 rounded-xl cursor-pointer text-xs font-semibold text-slate-700 flex items-center justify-between transition">
+                            <span class="flex items-center gap-1.5 truncate"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color:${route.color}"></span> ${route.name}</span>
+                            <span class="text-[10px] text-sky-600 font-bold bg-sky-50 px-1.5 py-0.5 rounded-md">Linha</span>
+                        </div>
+                    `;
+                });
+            }
+
+            suggestionsEl.innerHTML = html;
+            suggestionsEl.classList.remove('hidden');
+        }
+
+        function selectSearchSuggestion(type, id) {
+            const suggestionsEl = document.getElementById('searchSuggestions');
+            suggestionsEl.classList.add('hidden');
+
+            if (type === 'stop') {
+                const stop = DB.stops[id];
+                if (stop) {
+                    document.getElementById('searchInput').value = stop.name;
+                    // Calcula distância do centro padrão ou localização atual
+                    const currentPos = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
+                    const dist = calculateDistanceMeters(currentPos.lat, currentPos.lng, stop.lat, stop.lng);
+                    displayFoundStopCard(stop, dist);
+                    map.setView([stop.lat, stop.lng], 17);
+                }
+            } else if (type === 'route') {
+                const route = DB.routes.find(r => r.id === id);
+                if (route) {
+                    document.getElementById('searchInput').value = route.name;
+                    selectRouteInUI(route.id);
+                }
+            }
+        }
+
+        function handleLogin() {
+            const user = document.getElementById('adminUser').value;
+            const pass = document.getElementById('adminPass').value;
+            if(user === 'admin' && pass === '123456') {
+                DB.isAdmin = true;
+                closeAllModals();
+                document.getElementById('gestorBadgeHeader').classList.remove('hidden');
+                document.getElementById('adminAddLineContainer').classList.remove('hidden');
+                document.getElementById('tabAdminLoggedOut').classList.add('hidden');
+                document.getElementById('tabAdminLoggedIn').classList.remove('hidden');
+                populateUI();
+                showMessage("Acesso Concedido", "Modo Gestor ativado com sucesso.", "success");
+            } else {
+                showMessage("Acesso Negado", "Usuário ou senha incorretos.", "error");
+            }
+        }
+
+        function handleLogout() {
+            DB.isAdmin = false;
+            document.getElementById('gestorBadgeHeader').classList.add('hidden');
+            document.getElementById('adminAddLineContainer').classList.add('hidden');
+            document.getElementById('tabAdminLoggedOut').classList.remove('hidden');
+            document.getElementById('tabAdminLoggedIn').classList.add('hidden');
+            populateUI();
+            showMessage("Sessão Encerrada", "Você saiu do Modo Gestor.", "info");
+        }
+
+        function switchTab(tabName) {
+            const tabs = {
+                routes: { btn: 'tabRoutesBtn', content: 'tabRoutes' },
+                alerts: { btn: 'tabAlertsBtn', content: 'tabAlerts' },
+                admin: { btn: 'tabAdminBtn', content: 'tabAdmin' }
+            };
+
+            Object.keys(tabs).forEach(k => {
+                const t = tabs[k];
+                const btn = document.getElementById(t.btn);
+                const content = document.getElementById(t.content);
+                if(k === tabName) {
+                    btn.className = "flex-1 py-2.5 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-white text-primary shadow-sm";
+                    content.classList.remove('hidden');
+                } else {
+                    btn.className = "flex-1 py-2.5 px-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 transition flex items-center justify-center gap-1.5 hover:bg-white/50";
+                    content.classList.add('hidden');
+                }
+            });
+            setTimeout(() => map && map.invalidateSize(), 150);
+        }
+
+        function setupEventListeners() {
+            window.addEventListener('resize', () => {
+                if (map) map.invalidateSize();
+            });
+
+            document.getElementById('tabRoutesBtn').addEventListener('click', () => switchTab('routes'));
+            document.getElementById('tabAlertsBtn').addEventListener('click', () => switchTab('alerts'));
+            document.getElementById('tabAdminBtn').addEventListener('click', () => switchTab('admin'));
+
+            document.querySelectorAll('.close-modal').forEach(btn => {
+                btn.addEventListener('click', closeAllModals);
+            });
+
+            document.getElementById('adminLoginBtn').addEventListener('click', () => showModal('loginModal'));
+            document.getElementById('tabAdminLoginTrigger').addEventListener('click', () => showModal('loginModal'));
+            document.getElementById('doLoginBtn').addEventListener('click', handleLogin);
+            document.getElementById('tabAdminLogoutBtn').addEventListener('click', handleLogout);
+
+            document.getElementById('openAddLineMenuBtn').addEventListener('click', openAddLineMenu);
+            document.getElementById('startDrawingPathBtn').addEventListener('click', startDrawingPathOnMap);
+            document.getElementById('startAddingStopsBtn').addEventListener('click', startAddingStopsOnMap);
+            document.getElementById('saveNewLineBtn').addEventListener('click', saveNewLine);
+            document.getElementById('cancelDrawingBannerBtn').addEventListener('click', finishDrawingAndReturnToMenu);
+
+            document.getElementById('cancelDeleteBtn').addEventListener('click', closeAllModals);
+            document.getElementById('confirmDeleteBtn').addEventListener('click', executeDeleteRoute);
+
+            document.getElementById('newLineColor').addEventListener('input', (e) => {
+                DB.newLine.color = e.target.value;
+                if(tempDrawingPolyline) tempDrawingPolyline.setStyle({ color: DB.newLine.color });
+            });
+
+            document.getElementById('openFullDashboardBtn').addEventListener('click', renderAdminDashboard);
+
+            // Eventos do Buscador & Geolocalização GPS
+            document.getElementById('geoBtn').addEventListener('click', handleGeolocationSearch);
+            document.getElementById('searchBtn').addEventListener('click', handleSearch);
+            document.getElementById('searchInput').addEventListener('input', handleSearchInput);
+            document.getElementById('searchInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('searchSuggestions').classList.add('hidden');
+                    handleSearch();
+                }
+            });
+
+            // Ocultar sugestões ao clicar fora do input
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('#searchInput') && !e.target.closest('#searchSuggestions')) {
+                    document.getElementById('searchSuggestions').classList.add('hidden');
+                }
+            });
+
+            document.getElementById('toggleAlertsMap').addEventListener('change', toggleAlertsOnMap);
+            document.getElementById('newAlertBtn').addEventListener('click', () => {
+                populateAlertRoutes();
+                showModal('alertModal');
+            });
+            document.getElementById('confirmAlertBtn').addEventListener('click', prepareAlertPlacement);
+
+            let currentRatingValue = 0;
+            document.querySelectorAll('#starContainer i').forEach(star => {
+                star.addEventListener('click', function() {
+                    currentRatingValue = parseInt(this.getAttribute('data-rating'));
+                    updateStarUI(currentRatingValue);
+                });
+            });
+            document.getElementById('submitRatingBtn').addEventListener('click', () => submitRating(currentRatingValue));
+
+            document.getElementById('closeRouteDetailBtn').addEventListener('click', () => {
+                document.getElementById('selectedRouteDetail').classList.add('hidden');
+                DB.selectedRouteId = null;
+                resetRouteHighlights();
+            });
+
+            document.getElementById('rateSelectedRouteBtn').addEventListener('click', () => {
+                if(DB.selectedRouteId) handleMapItemClick('route', DB.selectedRouteId);
+            });
+        }
+
+        function openAddLineMenu() {
+            DB.editingRouteId = null;
+            DB.newLine = { name: '', color: '#8b5cf6', path: [], stops: [] };
+            
+            document.getElementById('lineModalTitle').innerText = "Adicionar Nova Linha de Ônibus";
+            document.getElementById('lineModalSubtitle').innerText = "Traceje primeiro o trajeto e depois adicione as paradas";
+            document.getElementById('newLineName').value = '';
+            document.getElementById('newLineColor').value = '#8b5cf6';
+            
+            clearTempDrawingLayers();
+            updateLineModalStateUI();
+            showModal('addLineMenuModal');
+        }
+
+        function editRoute(id) {
+            const route = DB.routes.find(r => r.id === id);
+            if(!route) return;
+
+            DB.editingRouteId = id;
+            DB.newLine = {
+                name: route.name,
+                color: route.color,
+                path: [...route.path],
+                stops: [...route.stops]
+            };
+
+            document.getElementById('lineModalTitle').innerText = "Editar Linha de Ônibus";
+            document.getElementById('lineModalSubtitle').innerText = "Altere o nome, cor, trajeto ou adicione novas paradas";
+            document.getElementById('newLineName').value = route.name;
+            document.getElementById('newLineColor').value = route.color;
+
+            clearTempDrawingLayers();
+            
+            tempDrawingPolyline = L.polyline(DB.newLine.path, { color: DB.newLine.color, weight: 6, opacity: 0.9, lineCap: 'round' }).addTo(map);
+            
+            DB.newLine.stops.forEach(stopId => {
+                const st = DB.stops[stopId];
+                if(st) {
+                    const iconHtml = `<div class="stop-marker-dot" style="--route-color: ${DB.newLine.color}"></div>`;
+                    const customIcon = L.divIcon({ className: 'custom-stop-icon', html: iconHtml, iconSize: [14, 14], iconAnchor: [7, 7] });
+                    const marker = L.marker([st.lat, st.lng], { icon: customIcon }).addTo(map);
+                    marker.bindTooltip(st.name, { permanent: true, direction: 'top', offset: [0, -8] });
+                    tempStopMarkers.push(marker);
+                }
+            });
+
+            updateLineModalStateUI();
+            showModal('addLineMenuModal');
+        }
+
+        function promptDeleteRoute(id) {
+            const route = DB.routes.find(r => r.id === id);
+            if(!route) return;
+
+            DB.routeToDeleteId = id;
+            document.getElementById('deleteConfirmText').innerText = `Deseja realmente excluir a "${route.name}"?`;
+            showModal('deleteConfirmModal');
+        }
+
+        function executeDeleteRoute() {
+            if(!DB.routeToDeleteId) return;
+
+            const id = DB.routeToDeleteId;
+            DB.routes = DB.routes.filter(r => r.id !== id);
+            
+            if(DB.selectedRouteId === id) {
+                DB.selectedRouteId = null;
+                document.getElementById('selectedRouteDetail').classList.add('hidden');
+            }
+
+            DB.routeToDeleteId = null;
+            clearTempDrawingLayers();
+            closeAllModals();
+            
+            preprocessRouteGeometry();
+            renderMapElements();
+            populateUI();
+            showMessage("Linha Excluída", "A linha de ônibus foi removida com sucesso.", "success");
+        }
+
+        function updateLineModalStateUI() {
+            const hasValidPath = DB.newLine.path.length >= 2;
+            
+            document.getElementById('pathPointsBadge').innerText = `${DB.newLine.path.length} pontos`;
+            document.getElementById('drawPathBtnText').innerText = DB.newLine.path.length > 0 ? "Redesenhar / Alterar Trajeto" : "Desenhar Trajeto no Mapa";
+            
+            const addStopsBtn = document.getElementById('startAddingStopsBtn');
+            const stopsHint = document.getElementById('stopsDisabledHint');
+            
+            if(hasValidPath) {
+                addStopsBtn.disabled = false;
+                stopsHint.classList.add('hidden');
+            } else {
+                addStopsBtn.disabled = true;
+                stopsHint.classList.remove('hidden');
+            }
+
+            updateNewLineStopsUIList();
+        }
+
+        function startDrawingPathOnMap() {
+            const nameInput = document.getElementById('newLineName').value.trim();
+            if(!nameInput) {
+                showMessage("Atenção", "Por favor, digite o nome da linha antes de desenhar no mapa.", "info");
+                return;
+            }
+
+            DB.newLine.name = nameInput;
+            DB.newLine.color = document.getElementById('newLineColor').value;
+            DB.drawingMode = 'path';
+
+            closeAllModals();
+
+            document.getElementById('drawingBannerTitle').innerText = `Desenhando Trajeto: ${DB.newLine.name}`;
+            document.getElementById('drawingBannerTitle').nextElementSibling.innerHTML = "<b>Clique com Botão Esquerdo no Mapa:</b> Adicionar Pontos do Trajeto";
+            document.getElementById('drawingBanner').classList.remove('hidden');
+            document.getElementById('map').style.cursor = 'crosshair';
+
+            if(!tempDrawingPolyline) {
+                tempDrawingPolyline = L.polyline(DB.newLine.path, { color: DB.newLine.color, weight: 6, opacity: 0.9, lineCap: 'round' }).addTo(map);
+            }
+
+            // --- NOVO: Preparar elementos visuais do mouse ---
+            if(cursorMarker) map.removeLayer(cursorMarker);
+            if(rubberbandPolyline) map.removeLayer(rubberbandPolyline);
+
+            // Cria a bolinha colorida (agora perfeitamente centralizada no cursor '+')
+            const dotHtml = `<div style="width: 14px; height: 14px; background-color: ${DB.newLine.color}; border: 2.5px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.5);"></div>`;
+            const dotIcon = L.divIcon({ className: '', html: dotHtml, iconSize: [14, 14], iconAnchor: [7, 7] }); 
+            cursorMarker = L.marker(map.getCenter(), { icon: dotIcon, interactive: false, opacity: 0, zIndexOffset: 1000 }).addTo(map);
+            
+            // Cria a linha tracejada de pré-visualização
+            rubberbandPolyline = L.polyline([], { color: DB.newLine.color, weight: 5, opacity: 0.6, dashArray: '8, 8', lineCap: 'round', interactive: false }).addTo(map);
+
+            map.off('click');
+            map.off('mousemove');
+            map.on('click', handleMapLeftClickPathDrawing);
+            map.on('mousemove', handleMapMouseMovePathDrawing);
+        }
+
+        function handleMapMouseMovePathDrawing(e) {
+            if(DB.drawingMode !== 'path') return;
+            
+            // Atualiza a posição da bolinha
+            if (cursorMarker) {
+                cursorMarker.setLatLng(e.latlng);
+                cursorMarker.setOpacity(1); // Fica visível assim que o mouse se move no mapa
+            }
+
+            // Atualiza a linha tracejada conectando ao último ponto
+            if (rubberbandPolyline && DB.newLine.path.length > 0) {
+                const lastPt = DB.newLine.path[DB.newLine.path.length - 1];
+                rubberbandPolyline.setLatLngs([lastPt, [e.latlng.lat, e.latlng.lng]]);
+            }
+        }
+
+        function handleMapLeftClickPathDrawing(e) {
+            if(DB.drawingMode !== 'path') return;
+            const latlng = [e.latlng.lat, e.latlng.lng];
+            DB.newLine.path.push(latlng);
+            if(tempDrawingPolyline) {
+                tempDrawingPolyline.setLatLngs(DB.newLine.path);
+            }
+            updateLineModalStateUI();
+        }
+
+        // --- NOVO: Função auxiliar para gerar parada automática ---
+        function createAutoStop(lat, lng, name) {
+            const stopId = 's_auto_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+            const newStop = {
+                id: stopId,
+                name: name,
+                lat: lat,
+                lng: lng
+            };
+            DB.stops[stopId] = newStop;
+            return stopId;
+        }
+
+        function startAddingStopsOnMap() {
+            if(DB.newLine.path.length < 2) {
+                showMessage("Trajeto Incompleto", "Desenhe primeiro a rota da linha com pelo menos 2 pontos.", "info");
+                return;
+            }
+
+            DB.drawingMode = 'stops';
+            closeAllModals();
+
+            redrawTempLayers();
+
+            document.getElementById('drawingBannerTitle').innerText = `Adicionando Paradas (${DB.newLine.stops.length}): ${DB.newLine.name}`;
+            document.getElementById('drawingBannerTitle').nextElementSibling.innerHTML = "<b>Clique na Linha/Mapa:</b> Criar Nova Parada neste Ponto";
+            document.getElementById('drawingBanner').classList.remove('hidden');
+            document.getElementById('map').style.cursor = 'pointer';
+
+            // --- NOVO: Bolinha simulando parada para acompanhar o mouse/linha ---
+            if(cursorMarker) map.removeLayer(cursorMarker);
+            if(rubberbandPolyline) map.removeLayer(rubberbandPolyline);
+            
+            // Criando visual idêntico ao de uma parada salva (fundo branco, borda colorida)
+            const stopDotHtml = `<div class="stop-marker-dot" style="--route-color: ${DB.newLine.color}; pointer-events: none;"></div>`;
+            const stopDotIcon = L.divIcon({ className: 'custom-stop-icon', html: stopDotHtml, iconSize: [14, 14], iconAnchor: [7, 7] });
+            cursorMarker = L.marker(map.getCenter(), { icon: stopDotIcon, interactive: false, opacity: 0, zIndexOffset: 1000 }).addTo(map);
+
+            map.off('click');
+            map.off('mousemove');
+            map.on('click', handleMapClickStopPlacement);
+            map.on('mousemove', handleMapMouseMoveStopPlacement);
+        }
+
+        function handleMapMouseMoveStopPlacement(e) {
+            if(DB.drawingMode !== 'stops') return;
+            
+            if (cursorMarker) {
+                // Efeito magnético (snap): a bolinha acha o lugar exato na linha traçada
+                const snappedLatLng = getClosestPointOnPath([e.latlng.lat, e.latlng.lng], DB.newLine.path);
+                cursorMarker.setLatLng(snappedLatLng);
+                cursorMarker.setOpacity(1);
+            }
+        }
+
+        function handleMapClickStopPlacement(e) {
+            if(DB.drawingMode !== 'stops') return;
+
+            const snappedLatLng = getClosestPointOnPath([e.latlng.lat, e.latlng.lng], DB.newLine.path);
+
+            const stopCount = DB.newLine.stops.length + 1;
+            const stopId = 's_custom_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+            const prefix = DB.newLine.name.includes('-') ? DB.newLine.name.split('-')[1].trim() : (DB.newLine.name || 'Nova Linha');
+            const stopName = `Parada ${stopCount} (${prefix})`;
+
+            const newStop = {
+                id: stopId,
+                name: stopName,
+                lat: snappedLatLng[0],
+                lng: snappedLatLng[1]
+            };
+
+            DB.stops[stopId] = newStop;
+            DB.newLine.stops.push(stopId);
+
+            const iconHtml = `<div class="stop-marker-dot" style="--route-color: ${DB.newLine.color}"></div>`;
+            const customIcon = L.divIcon({ className: 'custom-stop-icon', html: iconHtml, iconSize: [14, 14], iconAnchor: [7, 7] });
+            const marker = L.marker([newStop.lat, newStop.lng], { icon: customIcon }).addTo(map);
+            marker.bindTooltip(newStop.name, { permanent: true, direction: 'top', offset: [0, -8] });
+            tempStopMarkers.push(marker);
+
+            document.getElementById('drawingBannerTitle').innerText = `Adicionando Paradas (${DB.newLine.stops.length} criada${DB.newLine.stops.length > 1 ? 's' : ''}): ${DB.newLine.name}`;
+
+            updateLineModalStateUI();
+        }
+
+        function stopDrawingMode() {
+            DB.drawingMode = null;
+            map.off('click', handleMapLeftClickPathDrawing);
+            map.off('click', handleMapClickStopPlacement);
+            map.off('mousemove', handleMapMouseMovePathDrawing);
+            map.off('mousemove', handleMapMouseMoveStopPlacement);
+            document.getElementById('drawingBanner').classList.add('hidden');
+            document.getElementById('map').style.cursor = '';
+
+            // Limpa os elementos visuais do mouse
+            if (cursorMarker) {
+                map.removeLayer(cursorMarker);
+                cursorMarker = null;
+            }
+            if (rubberbandPolyline) {
+                map.removeLayer(rubberbandPolyline);
+                rubberbandPolyline = null;
+            }
+        }
+
+        function clearTempDrawingLayers() {
+            stopDrawingMode();
+            if (tempDrawingPolyline) {
+                map.removeLayer(tempDrawingPolyline);
+                tempDrawingPolyline = null;
+            }
+            tempStopMarkers.forEach(m => map.removeLayer(m));
+            tempStopMarkers = [];
+        }
+
+        function redrawTempLayers() {
+            if (tempDrawingPolyline) map.removeLayer(tempDrawingPolyline);
+            tempStopMarkers.forEach(m => map.removeLayer(m));
+            tempStopMarkers = [];
+
+            if (DB.newLine.path && DB.newLine.path.length > 0) {
+                tempDrawingPolyline = L.polyline(DB.newLine.path, { color: DB.newLine.color, weight: 6, opacity: 0.9, lineCap: 'round' }).addTo(map);
+            }
+
+            if (DB.newLine.stops && DB.newLine.stops.length > 0) {
+                DB.newLine.stops.forEach(stopId => {
+                    const st = DB.stops[stopId];
+                    if (st) {
+                        const iconHtml = `<div class="stop-marker-dot" style="--route-color: ${DB.newLine.color}"></div>`;
+                        const customIcon = L.divIcon({ className: 'custom-stop-icon', html: iconHtml, iconSize: [14, 14], iconAnchor: [7, 7] });
+                        const marker = L.marker([st.lat, st.lng], { icon: customIcon }).addTo(map);
+                        marker.bindTooltip(st.name, { permanent: true, direction: 'top', offset: [0, -8] });
+                        tempStopMarkers.push(marker);
+                    }
+                });
+            }
+        }
+
+        function finishDrawingAndReturnToMenu() {
+            stopDrawingMode();
+            redrawTempLayers();
+            updateLineModalStateUI();
+            showModal('addLineMenuModal');
+        }
+
+        function getClosestPointOnSegment(p, p1, p2) {
+            const x = p[0], y = p[1];
+            const x1 = p1[0], y1 = p1[1];
+            const x2 = p2[0], y2 = p2[1];
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+
+            if (dx === 0 && dy === 0) return [x1, y1];
+
+            let t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+            t = Math.max(0, Math.min(1, t));
+
+            return [x1 + t * dx, y1 + t * dy];
+        }
+
+        function getClosestPointOnPath(p, path) {
+            if (!path || path.length < 2) return p;
+            let minSqDist = Infinity;
+            let closestPoint = path[0];
+
+            for (let i = 0; i < path.length - 1; i++) {
+                const pt = getClosestPointOnSegment(p, path[i], path[i + 1]);
+                const distSq = (p[0] - pt[0]) ** 2 + (p[1] - pt[1]) ** 2;
+                if (distSq < minSqDist) {
+                    minSqDist = distSq;
+                    closestPoint = pt;
+                }
+            }
+            return closestPoint;
+        }
+
+        function preprocessRouteGeometry() {
+            DB.routes.forEach(route => {
+                route.segments = [];
+                route.totalLength = 0;
+
+                for (let i = 0; i < route.path.length - 1; i++) {
+                    const p1 = route.path[i];
+                    const p2 = route.path[i + 1];
+                    const dist = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+                    route.segments.push({ p1, p2, dist });
+                    route.totalLength += dist;
+                }
+
+                route.stopDistances = [];
+                if (route.stops && route.stops.length > 0) {
+                    route.stops.forEach(stopId => {
+                        const stop = DB.stops[stopId];
+                        if (!stop) return;
+                        let accumulated = 0;
+                        let bestDist = 0;
+                        let minSq = Infinity;
+
+                        for (let seg of route.segments) {
+                            const pt = getClosestPointOnSegment([stop.lat, stop.lng], seg.p1, seg.p2);
+                            const sq = (stop.lat - pt[0])**2 + (stop.lng - pt[1])**2;
+                            const segProgress = Math.hypot(pt[0] - seg.p1[0], pt[1] - seg.p1[1]);
+                            if (sq < minSq) {
+                                minSq = sq;
+                                bestDist = accumulated + segProgress;
+                            }
+                            accumulated += seg.dist;
+                        }
+                        route.stopDistances.push(bestDist);
+                    });
+                }
+            });
+        }
+
+        function getPointAtDistance(route, targetDist) {
+            let accumulated = 0;
+            if (targetDist <= 0) return route.path[0];
+            if (targetDist >= route.totalLength) return route.path[route.path.length - 1];
+
+            for (let seg of route.segments) {
+                if (accumulated + seg.dist >= targetDist) {
+                    const segProgress = (targetDist - accumulated) / seg.dist;
+                    const lat = seg.p1[0] + (seg.p2[0] - seg.p1[0]) * segProgress;
+                    const lng = seg.p1[1] + (seg.p2[1] - seg.p1[1]) * segProgress;
+                    return [lat, lng];
+                }
+                accumulated += seg.dist;
+            }
+            return route.path[route.path.length - 1];
+        }
+
+        function renderMapElements() {
+            Object.values(routeLayers).forEach(l => map.removeLayer(l));
+            Object.values(stopLayers).forEach(l => map.removeLayer(l));
+            Object.values(alertLayers).forEach(l => map.removeLayer(l));
+            Object.values(busMarkers).forEach(m => map.removeLayer(m));
+            routeLayers = {}; stopLayers = {}; alertLayers = {}; busMarkers = {};
+
+            const busSvg = `<svg class="w-4 h-4 text-white fill-current" viewBox="0 0 24 24"><path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/></svg>`;
+
+            DB.routes.forEach(route => {
+                const polyline = L.polyline(route.path, { color: route.color, weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+                routeLayers[route.id] = polyline;
+                polyline.on('click', () => selectRouteInUI(route.id));
+
+                route.stops.forEach(stopId => {
+                    const stop = DB.stops[stopId];
+                    if (stop && !stopLayers[stopId]) {
+                        const iconHtml = `<div class="stop-marker-dot" style="--route-color: ${route.color}"></div>`;
+                        const customIcon = L.divIcon({ className: 'custom-stop-icon', html: iconHtml, iconSize: [14, 14], iconAnchor: [7, 7] });
+                        
+                        const marker = L.marker([stop.lat, stop.lng], { icon: customIcon }).addTo(map);
+                        marker.on('click', () => handleMapItemClick('stop', stop.id));
+                        stopLayers[stopId] = marker;
+                    }
+                });
+
+                const busIconHtml = `
+                    <div class="bus-marker-container">
+                        <div class="bus-pulse" style="--bus-color: ${route.color}"></div>
+                        <div class="bus-marker-icon" style="--bus-color: ${route.color}">
+                            ${busSvg}
+                        </div>
+                    </div>
+                `;
+                const busIcon = L.divIcon({ className: 'custom-bus-icon', html: busIconHtml, iconSize: [32, 32], iconAnchor: [16, 16] });
+                
+                route.buses.forEach((bus, index) => {
+                    const startPos = getPointAtDistance(route, bus.currentDist);
+                    const marker = L.marker(startPos, { icon: busIcon, zIndexOffset: 1000 }).addTo(map);
+                    marker.bindTooltip(`<b>${route.name}</b><br>Em trânsito`, { direction: 'top', offset: [0, -12] });
+                    busMarkers[`${route.id}_${index}`] = marker;
+                });
+            });
+
+            renderAlertsOnMap();
+        }
+
+        function startBusAnimationLoop() {
+            const SPEED = 0.00008;
+            const STOP_TICKS = 90;
+
+            function animate() {
+                DB.routes.forEach(route => {
+                    if(!route.totalLength) return;
+                    route.buses.forEach((bus, index) => {
+                        const marker = busMarkers[`${route.id}_${index}`];
+                        if (!marker) return;
+
+                        if (bus.state === 'stopped') {
+                            bus.waitTimer++;
+                            if (bus.waitTimer >= STOP_TICKS) {
+                                bus.state = 'moving';
+                                bus.waitTimer = 0;
+                            }
+                            return;
+                        }
+
+                        const prevDist = bus.currentDist;
+                        bus.currentDist += SPEED * bus.direction;
+
+                        if (bus.currentDist >= route.totalLength) {
+                            bus.currentDist = route.totalLength;
+                            bus.direction = -1;
+                            bus.state = 'stopped';
+                            bus.waitTimer = 0;
+                            bus.lastStopIdx = -1;
+                        } else if (bus.currentDist <= 0) {
+                            bus.currentDist = 0;
+                            bus.direction = 1;
+                            bus.state = 'stopped';
+                            bus.waitTimer = 0;
+                            bus.lastStopIdx = -1;
+                        } else if (route.stopDistances && route.stopDistances.length > 0) {
+                            route.stopDistances.forEach((sDist, idx) => {
+                                if (idx === bus.lastStopIdx) return;
+                                const passedForward = bus.direction === 1 && prevDist <= sDist && bus.currentDist >= sDist;
+                                const passedBackward = bus.direction === -1 && prevDist >= sDist && bus.currentDist <= sDist;
+                                
+                                if (passedForward || passedBackward) {
+                                    bus.currentDist = sDist;
+                                    bus.state = 'stopped';
+                                    bus.waitTimer = 0;
+                                    bus.lastStopIdx = idx;
+                                }
+                            });
+                        }
+
+                        const currentLatLng = getPointAtDistance(route, bus.currentDist);
+                        marker.setLatLng(currentLatLng);
+                    });
+                });
+                requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        function renderAlertsOnMap() {
+            Object.values(alertLayers).forEach(l => map.removeLayer(l));
+            alertLayers = {};
+
+            if(document.getElementById('toggleAlertsMap').checked) {
+                DB.alerts.forEach(alert => {
+                    const cfg = iconTypes[alert.type];
+                    const html = `
+                        <div style="background:${cfg.color}; color:white; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2.5px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.3); font-size:12px;">
+                            <i class="fa-solid ${cfg.icon}"></i>
+                        </div>
+                    `;
+                    const icon = L.divIcon({ className: 'custom-alert-icon', html: html, iconSize: [28, 28], iconAnchor: [14, 14] });
+                    const marker = L.marker([alert.lat, alert.lng], { icon: icon }).addTo(map);
+                    
+                    let routeName = "Geral";
+                    if(alert.routeId) {
+                        const r = DB.routes.find(rt => rt.id === alert.routeId);
+                        if(r) routeName = r.name;
+                    }
+                    
+                    marker.bindPopup(`
+                        <div class="p-1">
+                            <span class="font-bold text-xs block text-slate-800">${cfg.text}</span>
+                            <span class="text-[11px] text-slate-600">${alert.desc || 'Sem detalhes'}</span><br>
+                            <span class="text-[10px] text-slate-400 font-semibold">${routeName}</span>
+                        </div>
+                    `);
+                    alertLayers[alert.id] = marker;
+                });
+            }
+        }
+
+        function selectRouteInUI(routeId) {
+            DB.selectedRouteId = routeId;
+            const route = DB.routes.find(r => r.id === routeId);
+            if(!route) return;
+
+            resetRouteHighlights();
+            if(routeLayers[route.id]) {
+                routeLayers[route.id].setStyle({ opacity: 1, weight: 7 });
+                map.fitBounds(routeLayers[route.id].getBounds(), { padding: [60, 60] });
+            }
+
+            const detailContainer = document.getElementById('selectedRouteDetail');
+            detailContainer.classList.remove('hidden');
+            
+            document.getElementById('detailRouteTitle').innerText = route.name;
+            document.getElementById('detailBadgeColor').style.backgroundColor = route.color;
+            document.getElementById('detailNextBusTime').innerText = getMockTimeText(4);
+
+            const timelineList = document.getElementById('timelineStopsList');
+            timelineList.innerHTML = '';
+            
+            route.stops.forEach((stopId, idx) => {
+                const stop = DB.stops[stopId];
+                if(!stop) return;
+                const item = document.createElement('div');
+                item.className = 'flex items-center justify-between bg-white p-2 px-3 rounded-xl border border-teal-100 text-xs cursor-pointer hover:bg-teal-50/50 transition';
+                item.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="w-5 h-5 rounded-full bg-teal-100 text-primary text-[10px] font-bold flex items-center justify-center">${idx + 1}</span>
+                        <span class="font-medium text-slate-700">${stop.name}</span>
+                    </div>
+                    <span class="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-lg">${getMockTimeText(idx * 6)}</span>
+                `;
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    handleMapItemClick('stop', stop.id);
+                };
+                timelineList.appendChild(item);
+            });
+        }
+
+        function resetRouteHighlights() {
+            Object.values(routeLayers).forEach(l => l.setStyle({ opacity: 0.35, weight: 4 }));
+        }
+
+        function handleMapItemClick(type, id) {
+            if (DB.drawingMode || clickListener) return;
+
+            DB.currentRatingTarget = { type, id };
+            let title = "";
+            let itemRatings = DB.ratings.filter(r => r.targetType === type && r.targetId === id);
+            
+            if (type === 'route') {
+                const route = DB.routes.find(r => r.id === id);
+                title = `Avaliação: ${route.name}`;
+            } else {
+                const stop = DB.stops[id];
+                title = `Avaliação: ${stop.name}`;
+            }
+
+            document.getElementById('ratingTitle').innerText = title;
+            updateStarUI(0);
+            document.getElementById('ratingComment').value = "";
+            
+            renderHistoricalRatings(itemRatings);
+            showModal('ratingModal');
+        }
+
+        function renderHistoricalRatings(ratings) {
+            const container = document.getElementById('historicalRatings');
+            container.innerHTML = '';
+            
+            if(ratings.length === 0) {
+                container.innerHTML = '<p class="text-slate-400 italic text-center py-2">Sem avaliações anteriores neste trecho.</p>';
+                return;
+            }
+
+            const grouped = {};
+            ratings.forEach(r => {
+                const d = new Date(r.timestamp);
+                const hour = d.getHours();
+                const nextHour = (hour + 1) % 24;
+                const key = `${hour.toString().padStart(2, '0')}:00 -> ${nextHour.toString().padStart(2, '0')}:00`;
+                
+                if(!grouped[key]) grouped[key] = [];
+                grouped[key].push(r);
+            });
+
+            for (const [timeBlock, group] of Object.entries(grouped)) {
+                const blockDiv = document.createElement('div');
+                blockDiv.className = "bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 space-y-1";
+                
+                let sum = 0;
+                group.forEach(r => sum += r.rating);
+                const avg = (sum / group.length).toFixed(1);
+
+                let html = `
+                    <div class="flex justify-between items-center text-xs font-bold text-primary">
+                        <span><i class="fa-regular fa-clock mr-1"></i> ${timeBlock}</span>
+                        <span class="bg-primary/10 px-2 py-0.5 rounded-lg">${avg} ★ (${group.length} review${group.length>1?'s':''})</span>
+                    </div>
+                `;
+
+                group.forEach(r => {
+                    html += `
+                        <div class="text-[11px] text-slate-600 pl-2 border-l-2 border-primary/30 mt-1">
+                            <span class="text-amber-400 font-bold">${'★'.repeat(r.rating)}</span>
+                            <span>${r.comment ? ` - "${r.comment}"` : ''}</span>
+                        </div>
+                    `;
+                });
+
+                blockDiv.innerHTML = html;
+                container.appendChild(blockDiv);
+            }
+        }
+
+        function updateStarUI(val) {
+            const stars = document.querySelectorAll('#starContainer i');
+            stars.forEach(s => {
+                const r = parseInt(s.getAttribute('data-rating'));
+                if(r <= val) {
+                    s.classList.remove('text-slate-300');
+                    s.classList.add('text-amber-400');
+                } else {
+                    s.classList.add('text-slate-300');
+                    s.classList.remove('text-amber-400');
+                }
+            });
+            document.getElementById('submitRatingBtn').disabled = val === 0;
+        }
+
+        function submitRating(val) {
+            if (val === 0) return;
+            const comment = document.getElementById('ratingComment').value;
+            
+            DB.ratings.push({
+                id: 'rt_' + Date.now(),
+                targetType: DB.currentRatingTarget.type,
+                targetId: DB.currentRatingTarget.id,
+                rating: val,
+                comment: comment,
+                timestamp: new Date().toISOString()
+            });
+
+            closeAllModals();
+            showMessage("Obrigado!", "Sua avaliação foi registrada com sucesso.", "success");
+            populateUI();
+        }
+
+        function handleSearch() {
+            const val = document.getElementById('searchInput').value.toLowerCase().trim();
+            document.getElementById('searchSuggestions').classList.add('hidden');
+
+            if(!val) {
+                // Se o campo estiver vazio ao clicar em buscar, executa busca GPS
+                handleGeolocationSearch();
+                return;
+            }
+
+            let foundStop = null;
+            Object.values(DB.stops).forEach(stop => {
+                if(stop.name.toLowerCase().includes(val)) foundStop = stop;
+            });
+
+            if(!foundStop) {
+                // Se digitou algo genérico como Hospital ou Praça
+                const currentPos = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
+                const res = findNearestStopToCoords(currentPos.lat, currentPos.lng);
+                foundStop = res.stop;
+            }
+
+            if(foundStop) {
+                const currentPos = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
+                const dist = calculateDistanceMeters(currentPos.lat, currentPos.lng, foundStop.lat, foundStop.lng);
+                
+                displayFoundStopCard(foundStop, dist);
+                map.setView([foundStop.lat, foundStop.lng], 17);
+            }
+        }
+
+        function prepareAlertPlacement() {
+            closeAllModals();
+            const type = document.getElementById('alertType').value;
+            const routeId = document.getElementById('alertRoute').value;
+            const desc = document.getElementById('alertDesc').value;
+
+            DB.pendingAlert = { type, routeId, desc };
+
+            showMessage("Marcar no Mapa", "Clique na rua no mapa onde ocorreu a situação para finalizar.", "info");
+            document.getElementById('map').style.cursor = 'crosshair';
+
+            clickListener = map.on('click', function(e) {
+                DB.alerts.push({
+                    id: 'a_' + Date.now(),
+                    type: DB.pendingAlert.type,
+                    routeId: DB.pendingAlert.routeId,
+                    desc: DB.pendingAlert.desc,
+                    lat: e.latlng.lat,
+                    lng: e.latlng.lng,
+                    timestamp: new Date().toISOString()
+                });
+
+                map.off('click', clickListener);
+                clickListener = null;
+                document.getElementById('map').style.cursor = '';
+                DB.pendingAlert = null;
+                
+                document.getElementById('toggleAlertsMap').checked = true;
+                renderAlertsOnMap();
+                populateUI();
+                
+                showMessage("Alerta Publicado", "Seu aviso já está visível no mapa para todos os passageiros.", "success");
+            });
+        }
+
+        function populateAlertRoutes() {
+            const select = document.getElementById('alertRoute');
+            select.innerHTML = '<option value="">Geral / Não Especificado</option>';
+            DB.routes.forEach(r => {
+                select.innerHTML += `<option value="${r.id}">${r.name}</option>`;
+            });
+        }
+
+        function toggleAlertsOnMap() {
+            renderAlertsOnMap();
+        }
+
+        let chartsInstance = {};
+
+        function renderAdminDashboard() {
+            showModal('dashboardModal');
+            
+            document.getElementById('kpiTotalRoutes').innerText = DB.routes.length;
+            document.getElementById('kpiTotalAlerts').innerText = DB.alerts.length;
+            
+            const allRatings = DB.ratings.map(r => r.rating);
+            const avg = allRatings.length ? (allRatings.reduce((a,b)=>a+b,0)/allRatings.length).toFixed(1) : '5.0';
+            document.getElementById('kpiAvgRating').innerText = `${avg} ★`;
+
+            setTimeout(() => {
+                buildChartAlertsPerLine();
+                buildChartAlertTypes();
+                buildRanking();
+            }, 100);
+        }
+
+        function buildChartAlertsPerLine() {
+            const ctx = document.getElementById('chartAlertsPerLine').getContext('2d');
+            if(chartsInstance['line']) chartsInstance['line'].destroy();
+
+            const labels = DB.routes.map(r => r.name);
+            const data = DB.routes.map(r => DB.alerts.filter(a => a.routeId === r.id).length);
+            const colors = DB.routes.map(r => r.color);
+
+            chartsInstance['line'] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Nº de Ocorrências',
+                        data: data,
+                        backgroundColor: colors,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        function buildChartAlertTypes() {
+            const ctx = document.getElementById('chartAlertTypes').getContext('2d');
+            if(chartsInstance['type']) chartsInstance['type'].destroy();
+
+            const types = ['superlotacao', 'congestionamento', 'acidente', 'ponto_danificado'];
+            const labels = types.map(t => iconTypes[t].text);
+            const data = types.map(t => DB.alerts.filter(a => a.type === t).length);
+            const bgColors = types.map(t => iconTypes[t].color);
+
+            chartsInstance['type'] = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: bgColors,
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        }
+
+        function buildRanking() {
+            const bestList = document.getElementById('bestLinesList');
+            const worstList = document.getElementById('worstLinesList');
+            bestList.innerHTML = ''; worstList.innerHTML = '';
+
+            const routeScores = [];
+            DB.routes.forEach(route => {
+                const routeRatings = DB.ratings.filter(r => r.targetType === 'route' && r.targetId === route.id);
+                const avg = routeRatings.length ? routeRatings.reduce((sum, r) => sum + r.rating, 0) / routeRatings.length : 5.0;
+                routeScores.push({ name: route.name, avg: avg, color: route.color });
+            });
+
+            routeScores.sort((a, b) => b.avg - a.avg);
+
+            routeScores.slice(0, Math.ceil(routeScores.length/2)).forEach(s => {
+                bestList.innerHTML += `<li class="flex items-center text-xs font-semibold text-slate-700"><span class="w-2.5 h-2.5 rounded-full mr-2 shrink-0" style="background-color: ${s.color}"></span><span class="truncate">${s.name}</span> <span class="ml-auto font-bold text-emerald-600 shrink-0">${s.avg.toFixed(1)} ★</span></li>`;
+            });
+            
+            routeScores.slice(Math.ceil(routeScores.length/2)).reverse().forEach(s => {
+                worstList.innerHTML += `<li class="flex items-center text-xs font-semibold text-slate-700"><span class="w-2.5 h-2.5 rounded-full mr-2 shrink-0" style="background-color: ${s.color}"></span><span class="truncate">${s.name}</span> <span class="ml-auto font-bold text-rose-600 shrink-0">${s.avg.toFixed(1)} ★</span></li>`;
+            });
+        }
+
+        function showModal(id) {
+            document.getElementById('modalOverlay').classList.remove('hidden');
+            document.querySelectorAll('.modal-enter').forEach(m => m.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        function closeAllModals() {
+            document.getElementById('modalOverlay').classList.add('hidden');
+        }
+
+        function showMessage(title, text, type="info") {
+            const icons = {
+                success: '<i class="fa-solid fa-circle-check text-emerald-500"></i>',
+                error: '<i class="fa-solid fa-circle-xmark text-rose-500"></i>',
+                info: '<i class="fa-solid fa-circle-info text-sky-500"></i>'
+            };
+            document.getElementById('msgIcon').innerHTML = icons[type];
+            document.getElementById('msgTitle').innerText = title;
+            document.getElementById('msgText').innerText = text;
+            showModal('messageModal');
+            document.getElementById('closeMsgBtn').onclick = closeAllModals;
+        }
+
+        function formatTimeElapsed(isoString) {
+            const diff = Date.now() - new Date(isoString).getTime();
+            const mins = Math.floor(diff / 60000);
+            if (mins < 60) return `${mins}m atrás`;
+            const hours = Math.floor(mins / 60);
+            return `${hours}h atrás`;
+        }
+
+        function getMockTimeText(offsetMins) {
+            const d = new Date();
+            d.setMinutes(d.getMinutes() + offsetMins);
+            return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+
+        function populateUI() {
+            const routesListEl = document.getElementById('routesList');
+            if (routesListEl) {
+                routesListEl.innerHTML = '';
+                DB.routes.forEach(route => {
+                    const isSelected = DB.selectedRouteId === route.id;
+                    const div = document.createElement('div');
+                    div.className = `p-3 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
+                        isSelected 
+                            ? 'bg-teal-50 border-teal-300 shadow-sm' 
+                            : 'bg-white border-slate-200/80 hover:border-teal-200 hover:bg-slate-50'
+                    }`;
+                    
+                    let adminActions = '';
+                    if (DB.isAdmin) {
+                        adminActions = `
+                            <div class="flex items-center gap-1 ml-2 shrink-0">
+                                <button onclick="event.stopPropagation(); editRoute('${route.id}')" class="p-1.5 text-slate-400 hover:text-primary transition" title="Editar Linha">
+                                    <i class="fa-solid fa-pen text-xs"></i>
+                                </button>
+                                <button onclick="event.stopPropagation(); promptDeleteRoute('${route.id}')" class="p-1.5 text-slate-400 hover:text-rose-500 transition" title="Excluir Linha">
+                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                            </div>
+                        `;
+                    }
+
+                    div.innerHTML = `
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs" style="background-color: ${route.color}"></span>
+                            <div class="truncate">
+                                <h4 class="font-bold text-xs text-slate-800 truncate">${route.name}</h4>
+                                <span class="text-[10px] text-slate-400 font-medium">${route.stops.length} paradas • ${route.buses.length} em circulação</span>
+                            </div>
+                        </div>
+                        ${adminActions}
+                    `;
+                    div.onclick = () => selectRouteInUI(route.id);
+                    routesListEl.appendChild(div);
+                });
+            }
+
+            const alertsListEl = document.getElementById('alertsList');
+            const alertsBadge = document.getElementById('alertsCountBadge');
+            if (alertsBadge) alertsBadge.innerText = DB.alerts.length;
+
+            if (alertsListEl) {
+                alertsListEl.innerHTML = '';
+                if (DB.alerts.length === 0) {
+                    alertsListEl.innerHTML = '<p class="text-xs text-slate-400 italic text-center py-4">Nenhuma ocorrência registrada no momento.</p>';
+                } else {
+                    DB.alerts.forEach(alert => {
+                        const cfg = iconTypes[alert.type] || iconTypes.congestionamento;
+                        let routeName = "Geral / Ponto";
+                        if (alert.routeId) {
+                            const r = DB.routes.find(rt => rt.id === alert.routeId);
+                            if (r) routeName = r.name;
+                        }
+                        const div = document.createElement('div');
+                        div.className = "bg-white p-3 rounded-2xl border border-slate-200/80 space-y-1.5 shadow-xs cursor-pointer hover:border-amber-300 transition";
+                        div.onclick = () => {
+                            map.setView([alert.lat, alert.lng], 16);
+                            if (alertLayers[alert.id]) alertLayers[alert.id].openPopup();
+                        };
+                        div.innerHTML = `
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                    <i class="fa-solid ${cfg.icon}" style="color: ${cfg.color}"></i>
+                                    ${cfg.text}
+                                </span>
+                                <span class="text-[10px] text-slate-400 font-medium">${formatTimeElapsed(alert.timestamp)}</span>
+                            </div>
+                            <p class="text-[11px] text-slate-600 line-clamp-2">${alert.desc || 'Sem detalhes adicionais.'}</p>
+                            <span class="text-[10px] font-bold text-slate-400 block">${routeName}</span>
+                        `;
+                        alertsListEl.appendChild(div);
+                    });
+                }
+            }
+
+            const sidebarKpiRoutes = document.getElementById('sidebarKpiRoutes');
+            const sidebarKpiAlerts = document.getElementById('sidebarKpiAlerts');
+            if (sidebarKpiRoutes) sidebarKpiRoutes.innerText = DB.routes.length;
+            if (sidebarKpiAlerts) sidebarKpiAlerts.innerText = DB.alerts.length;
+        }
+
+        function updateNewLineStopsUIList() {
+            const listEl = document.getElementById('newLineStopsList');
+            const countEl = document.getElementById('newLineStopsCount');
+            if (countEl) countEl.innerText = `${DB.newLine.stops.length} paradas`;
+
+            if (!listEl) return;
+            listEl.innerHTML = '';
+
+            if (DB.newLine.stops.length === 0) {
+                listEl.innerHTML = '<p class="text-[11px] text-slate-400 italic text-center py-2">Nenhuma parada adicionada ainda.</p>';
+                return;
+            }
+
+            DB.newLine.stops.forEach((stopId, idx) => {
+                const stop = DB.stops[stopId];
+                if (!stop) return;
+                const item = document.createElement('div');
+                item.className = 'flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200 text-xs';
+                item.innerHTML = `
+                    <div class="flex items-center gap-2 truncate">
+                        <span class="w-4 h-4 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0">${idx + 1}</span>
+                        <span class="font-medium text-slate-700 truncate">${stop.name}</span>
+                    </div>
+                    <button onclick="removeStopFromNewLine('${stopId}')" class="text-slate-400 hover:text-rose-500 p-1 shrink-0">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                `;
+                listEl.appendChild(item);
+            });
+        }
+
+        function removeStopFromNewLine(stopId) {
+            DB.newLine.stops = DB.newLine.stops.filter(id => id !== stopId);
+            updateLineModalStateUI();
+        }
+
+        async function saveNewLine() {
+            const nameInput = document.getElementById('newLineName').value.trim();
+            if (!nameInput) {
+                showMessage("Atenção", "Por favor, digite um nome para a linha.", "info");
+                return;
+            }
+            if (DB.newLine.path.length < 2) {
+                showMessage("Atenção", "O trajeto da linha precisa ter pelo menos 2 pontos desenhados no mapa.", "info");
+                return;
+            }
+
+            // Exibe efeito de carregamento no botão
+            const btn = document.getElementById('saveNewLineBtn');
+            const originalBtnHtml = btn.innerHTML;
+            btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Alinhando às Ruas...`;
+            btn.disabled = true;
+
+            DB.newLine.name = nameInput;
+            DB.newLine.color = document.getElementById('newLineColor').value;
+
+            // Ajusta os cliques retos para grudarem no traçado das ruas reais
+            const snappedPath = await fetchSnappedPath(DB.newLine.path);
+
+            // --- NOVO: Garante criação automática das paradas inicial e final ---
+            const prefix = DB.newLine.name.includes('-') ? DB.newLine.name.split('-')[1].trim() : (DB.newLine.name || 'Nova Linha');
+            
+            const startCoord = snappedPath[0];
+            const endCoord = snappedPath[snappedPath.length - 1];
+
+            // Verifica se já não existem paradas no início ou fim
+            const hasStartStop = DB.newLine.stops.some(id => {
+                const s = DB.stops[id];
+                return s && calculateDistanceMeters(s.lat, s.lng, startCoord[0], startCoord[1]) < 30;
+            });
+
+            const hasEndStop = DB.newLine.stops.some(id => {
+                const s = DB.stops[id];
+                return s && calculateDistanceMeters(s.lat, s.lng, endCoord[0], endCoord[1]) < 30;
+            });
+
+            let finalStops = [...DB.newLine.stops];
+
+            if (!hasStartStop) {
+                const startStopId = createAutoStop(startCoord[0], startCoord[1], `Ponto Inicial (${prefix})`);
+                finalStops.unshift(startStopId);
+            }
+
+            if (!hasEndStop) {
+                const endStopId = createAutoStop(endCoord[0], endCoord[1], `Ponto Final (${prefix})`);
+                finalStops.push(endStopId);
+            }
+
+            DB.newLine.stops = finalStops;
+
+            // REAJUSTE DE PARADAS: Garante que todas as paradas criadas durante o desenho
+            // fiquem cravadas em cima da nova rota alinhada à rua
+            DB.newLine.stops.forEach(stopId => {
+                const st = DB.stops[stopId];
+                if (st) {
+                    const snappedStop = getClosestPointOnPath([st.lat, st.lng], snappedPath);
+                    st.lat = snappedStop[0];
+                    st.lng = snappedStop[1];
+                }
+            });
+
+            if (DB.editingRouteId) {
+                const idx = DB.routes.findIndex(r => r.id === DB.editingRouteId);
+                if (idx !== -1) {
+                    DB.routes[idx].name = DB.newLine.name;
+                    DB.routes[idx].color = DB.newLine.color;
+                    DB.routes[idx].path = [...snappedPath];
+                    DB.routes[idx].stops = [...DB.newLine.stops];
+                }
+            } else {
+                const newRouteId = 'r_' + Date.now();
+                const newRoute = {
+                    id: newRouteId,
+                    name: DB.newLine.name,
+                    color: DB.newLine.color,
+                    path: [...snappedPath],
+                    stops: [...DB.newLine.stops],
+                    buses: [{ currentDist: 0, direction: 1, state: 'moving', waitTimer: 0 }]
+                };
+                DB.routes.push(newRoute);
+            }
+
+            btn.innerHTML = originalBtnHtml;
+            btn.disabled = false;
+
+            clearTempDrawingLayers();
+            closeAllModals();
+            preprocessRouteGeometry();
+            renderMapElements();
+            populateUI();
+
+            showMessage("Sucesso", DB.editingRouteId ? "Linha atualizada com sucesso!" : "Nova linha salva com sucesso!", "success");
+            DB.editingRouteId = null;
+        }
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
